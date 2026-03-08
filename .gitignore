@@ -1,0 +1,12 @@
+venv/
+venv_nopip/
+venv_tmpfix/
+__pycache__/
+*.pyc
+
+data/raw/
+data/samples/
+results/
+
+.DS_Store
+Thumbs.db
