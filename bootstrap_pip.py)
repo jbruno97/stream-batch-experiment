@@ -1,0 +1,2 @@
+sys.path.insert(0, r\"C:\Python314\Lib\ensurepip\_bundled\pip-25.3-py3-none-any.whl\"
+runpy.run_module(\"pip\", run_name=\"__main__\"
