@@ -14,6 +14,9 @@ from typing import Dict, List, Optional
 
 METRICS_PREFIX = "METRICS_JSON:"
 KAFKA_CONNECTOR_PACKAGE = "org.apache.spark:spark-sql-kafka-0-10_2.13:4.1.1"
+SPARK_MASTER_CONTAINER = "spark-master"
+SPARK_WORKER_CONTAINER = "spark-worker"
+KAFKA_CONTAINER = "kafka"
 
 
 @dataclass
@@ -42,6 +45,9 @@ def resolve_python(python_arg: str, base_dir: Path) -> str:
     venv_python = base_dir / "venv" / "Scripts" / "python.exe"
     if venv_python.exists():
         return str(venv_python)
+    unix_venv_python = base_dir / "venv" / "bin" / "python"
+    if unix_venv_python.exists():
+        return str(unix_venv_python)
     return "python"
 
 
@@ -156,7 +162,7 @@ def ensure_topic(topic: str) -> None:
     cmd = [
         "docker",
         "exec",
-        "stream-batch-experiment-kafka-1",
+        KAFKA_CONTAINER,
         "kafka-topics",
         "--create",
         "--if-not-exists",
@@ -202,7 +208,7 @@ def run_batch_once(
     def stats_worker() -> None:
         stats_samples.extend(
             collect_docker_stats(
-                ["spark-master", "spark-worker", "stream-batch-experiment-kafka-1"],
+                [SPARK_MASTER_CONTAINER, SPARK_WORKER_CONTAINER, KAFKA_CONTAINER],
                 stats_interval_sec,
                 stop_event,
             )
@@ -215,7 +221,7 @@ def run_batch_once(
     cmd = [
         "docker",
         "exec",
-        "spark-master",
+        SPARK_MASTER_CONTAINER,
         "/opt/spark/bin/spark-submit",
         "--master",
         "spark://spark-master:7077",
@@ -272,7 +278,7 @@ def run_stream_once(
     def stats_worker() -> None:
         stats_samples.extend(
             collect_docker_stats(
-                ["spark-master", "spark-worker", "stream-batch-experiment-kafka-1"],
+                [SPARK_MASTER_CONTAINER, SPARK_WORKER_CONTAINER, KAFKA_CONTAINER],
                 stats_interval_sec,
                 stop_event,
             )
@@ -287,7 +293,7 @@ def run_stream_once(
     stream_cmd = [
         "docker",
         "exec",
-        "spark-master",
+        SPARK_MASTER_CONTAINER,
         "/opt/spark/bin/spark-submit",
         "--master",
         "spark://spark-master:7077",
@@ -379,7 +385,7 @@ def run_warmup(python_cmd: str, topic: str) -> None:
     stream_cmd = [
         "docker",
         "exec",
-        "spark-master",
+        SPARK_MASTER_CONTAINER,
         "/opt/spark/bin/spark-submit",
         "--master",
         "spark://spark-master:7077",
