@@ -127,3 +127,19 @@ Saídas consolidadas:
 - O projeto não depende dos scripts `.ps1` para a execução principal em Linux.
 - `localhost:29092` é usado apenas pelo producer local; dentro do container Spark, o Kafka é acessado por `kafka:9092`.
 - `docker-compose.yml` fixa os nomes dos containers principais para evitar dependência do nome da pasta do projeto.
+
+## Troubleshooting
+Se `docker compose up -d` falhar:
+- verifique portas em uso: `29092`, `7077`, `8080`, `8081`
+- veja os logs do serviço com problema: `docker compose logs kafka` ou `docker compose logs spark-master`
+- confirme acesso ao daemon Docker com `docker ps`
+
+Se o batch ou stream falhar no `spark-submit`:
+- verifique o log do Spark master: `docker logs spark-master`
+- confirme volumes montados: `docker exec spark-master ls /opt/jobs` e `docker exec spark-master ls /opt/data`
+- confirme que o Kafka responde: `docker exec kafka kafka-topics --bootstrap-server localhost:29092 --list`
+
+Se o stream não consumir mensagens:
+- confirme que o producer local usa `localhost:29092`
+- confirme que o job Spark no container usa `kafka:9092`
+- teste a criação do tópico dentro do container Kafka antes da execução
