@@ -3,18 +3,18 @@ import json
 import time
 
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, from_json
+from pyspark.sql.functions import avg, col, current_timestamp, from_json, unix_timestamp
 from pyspark.sql.types import IntegerType, LongType, StringType, StructField, StructType
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Structured Streaming experiment job")
     parser.add_argument("--bootstrap-servers", default="kafka:9092")
-    parser.add_argument("--topic", default="input-topic")
+    parser.add_argument("--topic", default="taxi-topic")
     parser.add_argument("--starting-offsets", default="earliest")
     parser.add_argument("--duration-sec", type=int, default=30)
     parser.add_argument("--trigger-sec", type=int, default=2)
-    parser.add_argument("--scenario", default="stream")
+    parser.add_argument("--scenario", default="S1")
     parser.add_argument("--run-id", default="run-0")
     return parser.parse_args()
 
@@ -32,9 +32,26 @@ def main() -> None:
 
     schema = StructType(
         [
-            StructField("category", StringType()),
-            StructField("value", IntegerType()),
-            StructField("timestamp", LongType()),
+            StructField("VendorID", IntegerType(), True),
+            StructField("tpep_pickup_datetime", StringType(), True),
+            StructField("tpep_dropoff_datetime", StringType(), True),
+            StructField("passenger_count", IntegerType(), True),
+            StructField("trip_distance", StringType(), True),
+            StructField("RatecodeID", StringType(), True),
+            StructField("store_and_fwd_flag", StringType(), True),
+            StructField("PULocationID", IntegerType(), True),
+            StructField("DOLocationID", IntegerType(), True),
+            StructField("payment_type", IntegerType(), True),
+            StructField("fare_amount", StringType(), True),
+            StructField("extra", StringType(), True),
+            StructField("mta_tax", StringType(), True),
+            StructField("tip_amount", StringType(), True),
+            StructField("tolls_amount", StringType(), True),
+            StructField("improvement_surcharge", StringType(), True),
+            StructField("total_amount", StringType(), True),
+            StructField("congestion_surcharge", StringType(), True),
+            StructField("Airport_fee", StringType(), True),
+            StructField("event_time_ms", LongType(), True),
         ]
     )
 
@@ -48,7 +65,14 @@ def main() -> None:
     )
 
     json_df = source_df.select(from_json(col("value").cast("string"), schema).alias("data")).select("data.*")
-    result_df = json_df.groupBy("category").count()
+    with_latency_df = (
+        json_df.withColumn("processing_time_s", unix_timestamp(current_timestamp()))
+        .withColumn("event_time_s", col("event_time_ms") / 1000.0)
+        .withColumn("latency_s", col("processing_time_s") - col("event_time_s"))
+    )
+    result_df = with_latency_df.groupBy("PULocationID").agg(
+        avg(col("fare_amount").cast("double")).alias("avg_fare_amount")
+    )
 
     query = (
         result_df.writeStream.outputMode("complete")

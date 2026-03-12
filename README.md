@@ -13,17 +13,17 @@ Comparar processamento batch e stream usando Spark + Kafka, coletando:
 ```text
 stream-batch-experiment/
 ├── data/
-│   ├── small/input.csv
-│   └── medium/input.csv
+│   ├── raw/nyc_taxi/*.parquet
+│   └── samples/
 ├── jobs/
 │   ├── batch_job.py
 │   └── stream_job.py
 ├── producer/
-│   └── kafka_producer.py
+│   └── taxi_stream_producer.py
 ├── scripts/
 │   ├── run_experiments.py
 │   ├── run_experiments.sh
-│   ├── generate_datasets.py
+│   ├── create_samples.py
 │   ├── consolidate_results.py
 │   └── test_read_dataset.py
 ├── results/
@@ -66,10 +66,10 @@ source venv/bin/activate
 python scripts/test_read_dataset.py
 ```
 
-Gerar dataset maior a partir do dataset pequeno:
+Gerar amostras do dataset real manualmente, se quiser:
 ```bash
 source venv/bin/activate
-python scripts/generate_datasets.py
+python scripts/create_samples.py
 ```
 
 ## Rodar o experimento completo
@@ -93,18 +93,19 @@ python scripts/run_experiments.py \
   --stream-duration-sec 30 \
   --stream-trigger-sec 2 \
   --stats-interval-sec 1 \
-  --topic input-topic
+  --topic taxi-topic
 ```
 
 ## Cenários atuais
 Batch:
-- `small`: `data/small/input.csv`
-- `medium`: `data/medium/input.csv`
+- `B1`: `data/samples/200mb`
+- `B2`: `data/samples/1gb`
+- `B3`: `data/samples/3gb`
 
 Stream:
-- `stream-200eps`
-- `stream-500eps`
-- `stream-1000eps`
+- `S1`: 200 eventos/s usando `data/samples/200mb`
+- `S2`: 500 eventos/s usando `data/samples/200mb`
+- `S3`: 1000 eventos/s usando `data/samples/200mb`
 
 ## Resultados gerados
 Execuções brutas:
@@ -127,6 +128,7 @@ Saídas consolidadas:
 - O projeto não depende dos scripts `.ps1` para a execução principal em Linux.
 - `localhost:29092` é usado apenas pelo producer local; dentro do container Spark, o Kafka é acessado por `kafka:9092`.
 - `docker-compose.yml` fixa os nomes dos containers principais para evitar dependência do nome da pasta do projeto.
+- Se `data/samples/` não existir, o runner gera as amostras automaticamente a partir de `data/raw/nyc_taxi`.
 
 ## Troubleshooting
 Se `docker compose up -d` falhar:

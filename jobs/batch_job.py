@@ -3,12 +3,13 @@ import json
 import time
 
 from pyspark.sql import SparkSession
+from pyspark.sql.functions import avg, col
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Batch aggregation experiment job")
-    parser.add_argument("--input", default="/opt/data/small/input.csv")
-    parser.add_argument("--scenario", default="small")
+    parser.add_argument("--input", default="/opt/data/samples/1gb")
+    parser.add_argument("--scenario", default="B2")
     parser.add_argument("--run-id", default="run-0")
     parser.add_argument("--show-limit", type=int, default=20)
     return parser.parse_args()
@@ -19,10 +20,10 @@ def main() -> None:
     spark = SparkSession.builder.appName("batch_experiment").getOrCreate()
 
     started_at = time.time()
-    df = spark.read.option("header", True).csv(args.input)
+    df = spark.read.parquet(args.input)
     total_rows = df.count()
 
-    result = df.groupBy("category").count()
+    result = df.groupBy("PULocationID").agg(avg(col("fare_amount").cast("double")).alias("avg_fare_amount"))
     result.show(args.show_limit, truncate=False)
 
     duration_sec = time.time() - started_at

@@ -35,7 +35,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stream-trigger-sec", type=int, default=2)
     parser.add_argument("--stats-interval-sec", type=float, default=1.0)
     parser.add_argument("--python", default="")
-    parser.add_argument("--topic", default="input-topic")
+    parser.add_argument("--topic", default="taxi-topic")
     return parser.parse_args()
 
 
@@ -186,6 +186,37 @@ def ensure_compose_up() -> None:
         raise RuntimeError(f"docker compose up -d failed: {result.stderr or result.stdout}")
 
 
+def ensure_taxi_samples(base_dir: Path) -> None:
+    sample_paths = [
+        base_dir / "data" / "samples" / "200mb",
+        base_dir / "data" / "samples" / "1gb",
+        base_dir / "data" / "samples" / "3gb",
+    ]
+    if all(path.exists() for path in sample_paths):
+        return
+
+    raw_dataset_dir = base_dir / "data" / "raw" / "nyc_taxi"
+    if not raw_dataset_dir.exists():
+        raise RuntimeError(f"Raw dataset not found: {raw_dataset_dir}")
+
+    result = run_command(
+        [
+            "docker",
+            "exec",
+            SPARK_MASTER_CONTAINER,
+            "/opt/spark/bin/spark-submit",
+            "/opt/scripts/create_samples.py",
+            "--input",
+            "/opt/data/raw/nyc_taxi",
+            "--output-root",
+            "/opt/data/samples",
+        ],
+        timeout=1200,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to generate taxi samples: {result.stderr or result.stdout}")
+
+
 def local_path_to_container_data(local_path: Path) -> str:
     path_str = local_path.as_posix()
     idx = path_str.find("/data/")
@@ -233,7 +264,7 @@ def run_batch_once(
         "--run-id",
         run_id,
     ]
-    result = run_command(cmd, timeout=300)
+    result = run_command(cmd, timeout=1800)
 
     stop_event.set()
     thread.join(timeout=5)
@@ -322,7 +353,9 @@ def run_stream_once(
     time.sleep(5)
     producer_cmd = [
         python_cmd,
-        "producer/kafka_producer.py",
+        "producer/taxi_stream_producer.py",
+        "--data-path",
+        "data/samples/200mb",
         "--bootstrap",
         "localhost:29092",
         "--topic",
@@ -335,8 +368,6 @@ def run_stream_once(
         scenario,
         "--run-id",
         run_id,
-        "--seed",
-        "42",
     ]
     producer_result = run_command(producer_cmd, timeout=stream_duration_sec + 90)
     stream_stdout, stream_stderr = stream_proc.communicate(timeout=stream_duration_sec + 180)
@@ -412,7 +443,9 @@ def run_warmup(python_cmd: str, topic: str) -> None:
     producer_result = run_command(
         [
             python_cmd,
-            "producer/kafka_producer.py",
+            "producer/taxi_stream_producer.py",
+            "--data-path",
+            "data/samples/200mb",
             "--bootstrap",
             "localhost:29092",
             "--topic",
@@ -425,8 +458,6 @@ def run_warmup(python_cmd: str, topic: str) -> None:
             "warmup",
             "--run-id",
             warmup_run_id,
-            "--seed",
-            "42",
         ],
         timeout=60,
     )
@@ -446,12 +477,14 @@ def main() -> None:
     python_cmd = resolve_python(args.python, base_dir)
 
     batch_scenarios = {
-        "small": base_dir / "data" / "small" / "input.csv",
-        "medium": base_dir / "data" / "medium" / "input.csv",
+        "B1": base_dir / "data" / "samples" / "200mb",
+        "B2": base_dir / "data" / "samples" / "1gb",
+        "B3": base_dir / "data" / "samples" / "3gb",
     }
-    stream_scenarios = [200, 500, 1000]
+    stream_scenarios = [("S1", 200), ("S2", 500), ("S3", 1000)]
 
     ensure_compose_up()
+    ensure_taxi_samples(base_dir)
     ensure_topic(args.topic)
 
     if args.warmup:
@@ -462,7 +495,7 @@ def main() -> None:
             print(f"Skipping batch scenario '{scenario_name}' (file not found: {dataset_path})")
             continue
         for run_idx in range(1, args.batch_repetitions + 1):
-            run_id = f"batch-{scenario_name}-r{run_idx}"
+            run_id = f"{scenario_name}_r{run_idx}"
             print(f"Running {run_id}")
             run_batch_once(
                 scenario=scenario_name,
@@ -472,10 +505,9 @@ def main() -> None:
                 output_csv=batch_csv,
             )
 
-    for rate in stream_scenarios:
-        scenario_name = f"stream-{rate}eps"
+    for scenario_name, rate in stream_scenarios:
         for run_idx in range(1, args.stream_repetitions + 1):
-            run_id = f"{scenario_name}-r{run_idx}"
+            run_id = f"{scenario_name}_r{run_idx}"
             print(f"Running {run_id}")
             run_stream_once(
                 scenario=scenario_name,
