@@ -16,7 +16,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rate", type=float, default=200.0)
     parser.add_argument("--duration", type=int, default=30)
     parser.add_argument("--topic", default="taxi-topic")
-    parser.add_argument("--bootstrap", default="localhost:29092")
+    parser.add_argument("--bootstrap", "--bootstrap-servers", dest="bootstrap", default="localhost:29092")
     parser.add_argument("--scenario", default="S1")
     parser.add_argument("--run-id", default="run-0")
     return parser.parse_args()

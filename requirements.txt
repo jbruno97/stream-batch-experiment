@@ -1,7 +1,11 @@
 pyspark
 kafka-python
 pandas
+pyarrow
 matplotlib
+seaborn
+docker
 psutil
 requests
 jupyter
+fastparquet

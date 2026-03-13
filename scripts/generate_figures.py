@@ -1,4 +1,4 @@
-from run_full_experiment import main
+from generate_plots import main
 
 
 if __name__ == "__main__":

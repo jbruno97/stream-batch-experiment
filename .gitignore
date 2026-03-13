@@ -1,4 +1,5 @@
 venv/
+.venv/
 venv_nopip/
 venv_tmpfix/
 __pycache__/

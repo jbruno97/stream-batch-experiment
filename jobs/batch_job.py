@@ -11,6 +11,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input", default="/opt/data/samples/1gb")
     parser.add_argument("--scenario", default="B2")
     parser.add_argument("--run-id", default="run-0")
+    parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--show-limit", type=int, default=20)
     return parser.parse_args()
 
@@ -19,6 +20,7 @@ def main() -> None:
     args = parse_args()
     spark = SparkSession.builder.appName("batch_experiment").getOrCreate()
 
+    # A coleta batch é intencionalmente simples: uma leitura completa seguida de uma agregação representativa.
     started_at = time.time()
     df = spark.read.parquet(args.input)
     total_rows = df.count()
@@ -33,13 +35,16 @@ def main() -> None:
         "run_id": args.run_id,
         "scenario": args.scenario,
         "input": args.input,
+        "workers": int(args.workers),
         "row_count": int(total_rows),
         "duration_sec": float(duration_sec),
+        "spark_version": spark.version,
         "throughput_rows_per_sec": float(throughput_rows_per_sec),
         "timestamp_unix": int(time.time()),
     }
 
     print(f"Execution Time: {duration_sec}")
+    # O runner consome esta linha para persistir as métricas da repetição em CSV.
     print("METRICS_JSON:" + json.dumps(metrics, sort_keys=True))
     spark.stop()
 
