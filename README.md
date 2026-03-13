@@ -112,9 +112,9 @@ Com o desenho atual, isso representa:
 - `19` cenários stream
 - `35` cenários no total
 
-Em `30` repetições por cenário, o protocolo completo chega a `1050` execuções. Para validação operacional, é recomendável começar com `1` repetição por cenário e só depois avançar para a campanha completa da dissertação.
+Em `30` repetições por cenário, o protocolo completo chega a `1050` execuções. Para validação operacional, é recomendável começar com `1` repetição por cenário e só depois avançar para a campanha completa do experimento.
 
-Esse desenho agora permite comparar, de forma isolada:
+Esse design permite comparar, de forma isolada:
 
 - o efeito do volume em batch
 - o efeito da taxa de eventos em stream
@@ -187,7 +187,7 @@ python scripts/run_full_experiment.py \
 
 ## Protocolo experimental
 
-Para uso acadêmico, recomenda-se executar o experimento em quatro fases.
+O experimento será executado em quatro fases.
 
 ### Fase 1: validação operacional
 
@@ -197,13 +197,13 @@ Objetivo:
 - confirmar geração de CSVs, plots, relatório e `environment.json`
 - confirmar funcionamento de Spark, Kafka, escalonamento de workers e coleta de métricas
 
-Execução recomendada:
+Execução:
 
 ```bash
 python scripts/run_full_experiment.py --warmup --batch-repetitions 1 --stream-repetitions 1
 ```
 
-Essa fase não deve ser usada para conclusões estatísticas. Ela serve apenas para validar o protocolo.
+Essa fase não será usada para conclusões estatísticas. Ela servirá apenas para validar o protocolo.
 
 ### Fase 2: estudo piloto
 
@@ -214,13 +214,13 @@ Objetivo:
 - avaliar viabilidade dos cenários mais pesados
 - observar a variabilidade inicial das métricas
 
-Execução recomendada:
+Execução:
 
 ```bash
 python scripts/run_full_experiment.py --batch-repetitions 3 --stream-repetitions 3
 ```
 
-Essa fase ajuda a decidir se o ambiente suporta a campanha final completa sem alterar o desenho experimental.
+Essa fase ajuda a decidir se o ambiente suporta a campanha final completa sem alterar o design experimental.
 
 ### Fase 3: campanha experimental final
 
@@ -229,7 +229,7 @@ Objetivo:
 - produzir os dados definitivos da dissertação
 - coletar repetições suficientes para análise estatística robusta
 
-Execução recomendada:
+Execução:
 
 ```bash
 python scripts/run_full_experiment.py --batch-repetitions 30 --stream-repetitions 30
@@ -244,7 +244,7 @@ Objetivo:
 - consolidar resultados
 - interpretar métricas por bloco experimental
 - responder às questões de pesquisa
-- incorporar gráficos e tabelas no texto da dissertação
+- incorporar gráficos e tabelas no texto final
 
 Artefatos usados nessa fase:
 
@@ -258,9 +258,8 @@ Artefatos usados nessa fase:
 
 - `1` repetição por cenário serve para validação operacional
 - `3` a `5` repetições por cenário servem para estudo piloto
-- `30` repetições por cenário servem para a campanha final da dissertação
+- `30` repetições por cenário servem para a campanha final do experimento
 
-Esse protocolo reduz o risco de executar uma campanha longa com instrumentação incorreta e melhora a robustez metodológica dos resultados finais.
 
 ## Fluxo automatizado
 
@@ -317,9 +316,9 @@ O runner executa automaticamente:
 - `scripts/container_monitor.py` coleta CPU, memória, rede e disco via Docker SDK.
 - `jobs/stream_job.py` exporta métricas por micro-batch, incluindo `processedRowsPerSecond`, latência média e backpressure.
 - `scripts/consolidate_results.py` calcula média, mediana, desvio padrão, IQR e IC95.
-- `scripts/generate_report.py` monta um resumo pronto para dissertação.
+- `scripts/generate_report.py` monta um resumo.
 
-## Questões de pesquisa suportadas
+## Questões de pesquisa
 
 - RQ1: Qual paradigma apresenta maior throughput em sistemas intensivos de dados?
 - RQ2: Como o volume de dados afeta o desempenho batch vs stream?
