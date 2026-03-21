@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import docker
+
 from capture_environment import write_environment_file
 from container_monitor import collect_container_metrics
 
@@ -219,6 +221,28 @@ def experiment_container_names() -> List[str]:
     return [SPARK_MASTER_CONTAINER, *list_worker_containers(), KAFKA_CONTAINER]
 
 
+def wait_for_named_containers(container_names: List[str], timeout_sec: float = 30.0, poll_sec: float = 1.0) -> None:
+    client = docker.from_env()
+    deadline = time.time() + timeout_sec
+    missing = list(container_names)
+    while time.time() < deadline:
+        current_missing: List[str] = []
+        for name in container_names:
+            try:
+                client.containers.get(name)
+            except docker.errors.NotFound:
+                current_missing.append(name)
+        if not current_missing:
+            return
+        missing = current_missing
+        time.sleep(poll_sec)
+    raise RuntimeError(
+        "Required Docker containers not found after waiting "
+        f"{timeout_sec:.0f}s: {', '.join(missing)}. "
+        "Run `docker compose up -d` and confirm the services are healthy."
+    )
+
+
 def ensure_kafka_ready() -> None:
     cmd = [
         "docker",
@@ -338,6 +362,7 @@ def scale_workers(worker_count: int) -> List[str]:
     workers = list_worker_containers()
     if len(workers) < worker_count:
         raise RuntimeError(f"Expected {worker_count} spark workers, found {len(workers)}")
+    wait_for_named_containers([SPARK_MASTER_CONTAINER, KAFKA_CONTAINER, *workers])
     return workers
 
 

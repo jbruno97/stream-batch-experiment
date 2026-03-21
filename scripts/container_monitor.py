@@ -74,7 +74,13 @@ def collect_container_metrics(
     samples: List[Dict[str, float | str]] = []
     while not stop_event.is_set():
         timestamp = time.time()
-        containers = [client.containers.get(name) for name in container_names]
+        try:
+            containers = [client.containers.get(name) for name in container_names]
+        except docker.errors.NotFound as exc:
+            raise RuntimeError(
+                "Container monitor could not find a required container. "
+                f"Configured names: {', '.join(container_names)}. Original error: {exc}"
+            ) from exc
         for container in containers:
             sample = parse_container_stats(container)
             samples.append(
