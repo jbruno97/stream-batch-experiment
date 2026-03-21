@@ -37,14 +37,14 @@ services:
       - --port
       - "7077"
       - --webui-port
-      - "8080"
+      - "8084"
     volumes:
       - ./jobs:/opt/jobs
       - ./scripts:/opt/scripts
       - ./data:/opt/data
       - ./results:/opt/results
     ports:
-      - "8080:8080"
+      - "8084:8084"
       - "7077:7077"
     mem_limit: 1g
 
