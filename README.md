@@ -226,7 +226,7 @@ Essa fase ajuda a decidir se o ambiente suporta a campanha final completa sem al
 
 Objetivo:
 
-- produzir os dados definitivos da dissertação
+- produzir os dados definitivos do experimento
 - coletar repetições suficientes para análise estatística robusta
 
 Execução:
