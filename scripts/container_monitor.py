@@ -1,11 +1,11 @@
 import argparse
 import csv
+import json
+import subprocess
 import threading
 import time
 from pathlib import Path
 from typing import Dict, List
-
-import docker
 
 
 def parse_args() -> argparse.Namespace:
@@ -19,34 +19,73 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mode", default="manual")
     return parser.parse_args()
 
+def run_command(cmd: List[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(cmd, capture_output=True, text=True)
 
-def _safe_div(numerator: float, denominator: float) -> float:
-    return numerator / denominator if denominator else 0.0
+
+def parse_size_to_bytes(raw: str) -> float:
+    value = raw.strip()
+    if not value or value == "--":
+        return 0.0
+    normalized = value.replace(" ", "").replace("iB", "ib")
+    suffixes = {
+        "b": 1.0,
+        "kb": 1000.0,
+        "mb": 1000.0**2,
+        "gb": 1000.0**3,
+        "tb": 1000.0**4,
+        "kib": 1024.0,
+        "mib": 1024.0**2,
+        "gib": 1024.0**3,
+        "tib": 1024.0**4,
+    }
+    for suffix, multiplier in sorted(suffixes.items(), key=lambda item: len(item[0]), reverse=True):
+        if normalized.lower().endswith(suffix):
+            number = normalized[: -len(suffix)] or "0"
+            return float(number) * multiplier
+    return float(normalized)
 
 
-def parse_container_stats(container) -> Dict[str, float]:
-    # O Docker expõe contadores cumulativos; aqui eles são normalizados nas métricas usadas no experimento.
-    stats = container.stats(stream=False)
-    cpu_total = float(stats["cpu_stats"]["cpu_usage"].get("total_usage", 0.0))
-    pre_cpu_total = float(stats["precpu_stats"]["cpu_usage"].get("total_usage", 0.0))
-    system_total = float(stats["cpu_stats"].get("system_cpu_usage", 0.0))
-    pre_system_total = float(stats["precpu_stats"].get("system_cpu_usage", 0.0))
-    online_cpus = float(stats["cpu_stats"].get("online_cpus") or 1.0)
-    cpu_delta = cpu_total - pre_cpu_total
-    system_delta = system_total - pre_system_total
-    cpu_pct = _safe_div(cpu_delta, system_delta) * online_cpus * 100.0
+def split_dual_metric(raw: str) -> tuple[float, float]:
+    parts = [part.strip() for part in raw.split("/", maxsplit=1)]
+    if len(parts) != 2:
+        return 0.0, 0.0
+    return parse_size_to_bytes(parts[0]), parse_size_to_bytes(parts[1])
 
-    memory_usage = float(stats["memory_stats"].get("usage", 0.0)) / (1024**2)
-    memory_limit = float(stats["memory_stats"].get("limit", 0.0)) / (1024**2)
-    memory_pct = _safe_div(memory_usage, memory_limit) * 100.0
 
-    networks = stats.get("networks", {})
-    net_rx = sum(float(item.get("rx_bytes", 0.0)) for item in networks.values())
-    net_tx = sum(float(item.get("tx_bytes", 0.0)) for item in networks.values())
+def parse_percent(raw: str) -> float:
+    return float(raw.replace("%", "").strip() or 0.0)
 
-    blkio_entries = stats.get("blkio_stats", {}).get("io_service_bytes_recursive", [])
-    disk_read = sum(float(item.get("value", 0.0)) for item in blkio_entries if item.get("op") == "Read")
-    disk_write = sum(float(item.get("value", 0.0)) for item in blkio_entries if item.get("op") == "Write")
+
+def fetch_container_stats(container_names: List[str]) -> Dict[str, Dict[str, object]]:
+    result = run_command(
+        ["docker", "stats", "--no-stream", "--format", "{{ json . }}", *container_names]
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            "Container monitor could not collect Docker stats. "
+            f"Configured names: {', '.join(container_names)}. Error: {result.stderr or result.stdout}"
+        )
+    rows: Dict[str, Dict[str, object]] = {}
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        payload = json.loads(line)
+        name = str(payload.get("Name", "")).strip()
+        if name:
+            rows[name] = payload
+    return rows
+
+
+def parse_container_stats(stats: Dict[str, object]) -> Dict[str, float]:
+    cpu_pct = parse_percent(str(stats.get("CPUPerc", "0")))
+    memory_usage_bytes, memory_limit_bytes = split_dual_metric(str(stats.get("MemUsage", "0 / 0")))
+    memory_usage = memory_usage_bytes / (1024**2)
+    memory_limit = memory_limit_bytes / (1024**2)
+    memory_pct = parse_percent(str(stats.get("MemPerc", "0")))
+    net_rx, net_tx = split_dual_metric(str(stats.get("NetIO", "0 / 0")))
+    disk_read, disk_write = split_dual_metric(str(stats.get("BlockIO", "0 / 0")))
 
     return {
         "cpu_pct": cpu_pct,
@@ -70,26 +109,25 @@ def collect_container_metrics(
     mode: str,
 ) -> List[Dict[str, float | str]]:
     # A amostragem em intervalos fixos cria uma série temporal de recursos agregável por cenário e repetição.
-    client = docker.from_env()
     samples: List[Dict[str, float | str]] = []
     while not stop_event.is_set():
         timestamp = time.time()
-        try:
-            containers = [client.containers.get(name) for name in container_names]
-        except docker.errors.NotFound as exc:
+        stats_by_name = fetch_container_stats(container_names)
+        missing = [name for name in container_names if name not in stats_by_name]
+        if missing:
             raise RuntimeError(
                 "Container monitor could not find a required container. "
-                f"Configured names: {', '.join(container_names)}. Original error: {exc}"
-            ) from exc
-        for container in containers:
-            sample = parse_container_stats(container)
+                f"Configured names: {', '.join(container_names)}. Missing stats for: {', '.join(missing)}"
+            )
+        for container_name in container_names:
+            sample = parse_container_stats(stats_by_name[container_name])
             samples.append(
                 {
                     "run_id": run_id,
                     "scenario": scenario,
                     "scenario_category": scenario_category,
                     "mode": mode,
-                    "container": container.name,
+                    "container": container_name,
                     "sample_timestamp_unix": timestamp,
                     **sample,
                 }

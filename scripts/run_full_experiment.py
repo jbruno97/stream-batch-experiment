@@ -10,8 +10,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
-import docker
-
 from capture_environment import write_environment_file
 from container_monitor import collect_container_metrics
 
@@ -221,17 +219,19 @@ def experiment_container_names() -> List[str]:
     return [SPARK_MASTER_CONTAINER, *list_worker_containers(), KAFKA_CONTAINER]
 
 
+def list_all_container_names() -> List[str]:
+    result = run_command(["docker", "ps", "-a", "--format", "{{.Names}}"], timeout=30)
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to list Docker containers: {result.stderr or result.stdout}")
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
 def wait_for_named_containers(container_names: List[str], timeout_sec: float = 30.0, poll_sec: float = 1.0) -> None:
-    client = docker.from_env()
     deadline = time.time() + timeout_sec
     missing = list(container_names)
     while time.time() < deadline:
-        current_missing: List[str] = []
-        for name in container_names:
-            try:
-                client.containers.get(name)
-            except docker.errors.NotFound:
-                current_missing.append(name)
+        available = set(list_all_container_names())
+        current_missing = [name for name in container_names if name not in available]
         if not current_missing:
             return
         missing = current_missing
