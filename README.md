@@ -203,6 +203,54 @@ Os JARs ficam em `./jars/` e são montados automaticamente nos containers via vo
 
 ---
 
+## Dataset
+
+O dataset completo não é versionado no GitHub por tamanho. O projeto espera arquivos **Parquet** do NYC Taxi e gera automaticamente as amostras experimentais em `data/samples/{200mb,1gb,3gb,10gb}` quando elas ainda não existem.
+
+Por padrão:
+
+```text
+data/
+├── raw/nyc_taxi/*.parquet     # dataset bruto, ignorado pelo Git
+├── processed/                 # ignorado pelo Git
+└── samples/                   # amostras geradas, ignoradas pelo Git
+```
+
+Para baixar o dataset real na máquina que vai executar o experimento:
+
+```bash
+bash scripts/download_dataset.sh
+```
+
+O script baixa, por padrão, os meses `2023-01`, `2023-02` e `2023-03` para `data/raw/nyc_taxi`. Para escolher outros meses:
+
+```bash
+NYC_TAXI_MONTHS="2023-01 2023-02 2023-03 2023-04" \
+  bash scripts/download_dataset.sh
+```
+
+Para guardar os dados fora do repositório, use `DATA_ROOT`. Esse diretório será montado nos containers como `/opt/data`:
+
+```bash
+export DATA_ROOT=/mnt/datasets/stream-batch
+bash scripts/download_dataset.sh
+docker compose up -d
+python scripts/run_full_experiment.py \
+  --batch-repetitions 1 \
+  --stream-repetitions 1
+```
+
+Se o bruto estiver em outro subdiretório dentro de `DATA_ROOT`, defina também `DATASET_DIR`:
+
+```bash
+export DATA_ROOT=/mnt/datasets
+export DATASET_DIR=/mnt/datasets/nyc_taxi
+```
+
+Importante: mantenha `data/raw/`, `data/processed/`, `data/samples/` e `results/` fora do Git. O repositório deve conter código, scripts, configurações e documentação, não os 27 GB de dados locais.
+
+---
+
 ## Execução
 
 ### 1. Validação operacional (obrigatória antes de qualquer campanha)
@@ -357,4 +405,3 @@ Sem `scipy`, o Shapiro-Wilk é omitido mas os demais sumários são gerados norm
 ```bash
 pip show pyarrow
 ```
-

@@ -20,6 +20,7 @@ BATCH_METRICS_PFX  = "STREAM_BATCH_METRICS_JSON:"
 KAFKA_PKG          = "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1"
 SPARK_MASTER       = "spark-master"
 KAFKA_CTR          = "kafka"
+CONTAINER_DATA_ROOT = Path("/opt/data")
 
 # ── cenários ──────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
@@ -180,30 +181,54 @@ def _ensure_topic(topic: str) -> None:
     if r.returncode != 0:
         raise RuntimeError(f"Falha ao criar tópico {topic}: {r.stderr}")
 
-def _ensure_samples(base: Path) -> None:
+def _resolve_data_root(base: Path) -> Path:
+    data_root = Path(os.environ.get("DATA_ROOT", "data"))
+    if not data_root.is_absolute():
+        data_root = base / data_root
+    return data_root.resolve()
+
+def _resolve_data_path(base: Path, data_root: Path, path_str: str) -> Path:
+    path = Path(path_str)
+    if path.is_absolute():
+        return path.resolve()
+    if path.parts and path.parts[0] == "data":
+        return (data_root / Path(*path.parts[1:])).resolve()
+    return (base / path).resolve()
+
+def _container_data_path(host_path: Path, data_root: Path) -> str:
+    try:
+        rel = host_path.resolve().relative_to(data_root.resolve())
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Caminho de dataset fora de DATA_ROOT: {host_path}. "
+            f"Defina DATA_ROOT para o diretório montado em /opt/data."
+        ) from exc
+    return str(CONTAINER_DATA_ROOT / rel)
+
+def _raw_dataset_dir(base: Path, data_root: Path) -> Path:
+    dataset_dir = os.environ.get("DATASET_DIR")
+    if dataset_dir:
+        return _resolve_data_path(base, data_root, dataset_dir)
+    return (data_root / "raw" / "nyc_taxi").resolve()
+
+def _ensure_samples(base: Path, data_root: Path) -> None:
     required = ["200mb","1gb","3gb","10gb"]
-    if all((base/"data"/"samples"/d).exists() and
-           any((base/"data"/"samples"/d).rglob("*.parquet")) for d in required):
+    samples_root = data_root / "samples"
+    if all((samples_root/d).exists() and
+           any((samples_root/d).rglob("*.parquet")) for d in required):
         return
-    raw = base/"data"/"raw"/"nyc_taxi"
-    if not raw.exists():
+    raw = _raw_dataset_dir(base, data_root)
+    if not raw.exists() or not any(raw.rglob("*.parquet")):
         raise RuntimeError(f"Dataset bruto não encontrado: {raw}")
     r = _run([
         "docker","exec",SPARK_MASTER,
         "/opt/spark/bin/spark-submit",
         "/opt/scripts/create_samples.py",
-        "--input","/opt/data/raw/nyc_taxi",
+        "--input",_container_data_path(raw, data_root),
         "--output-root","/opt/data/samples",
     ], timeout=2400)
     if r.returncode != 0:
         raise RuntimeError(f"Falha ao criar amostras: {r.stderr or r.stdout}")
-
-def _container_path(p: Path) -> str:
-    s = p.as_posix()
-    idx = s.find("/data/")
-    if idx == -1:
-        raise ValueError(f"Caminho fora de data/: {p}")
-    return "/opt" + s[idx:]
 
 # ── monitor de containers ─────────────────────────────────────────────────────
 def _start_monitor(containers, interval, run_id, scenario, category, mode):
@@ -223,7 +248,10 @@ def _resource_summary(samples: List[Dict]) -> Dict:
     return {"avg_cpu_pct":_avg(cpu),"max_cpu_pct":max(cpu),"avg_mem_mib":_avg(mem),"max_mem_mib":max(mem)}
 
 # ── execução batch ────────────────────────────────────────────────────────────
-def run_batch_once(base: Path, sc: BatchScenario, run_id: str, commit: str, interval: float, raw: Path) -> None:
+def run_batch_once(
+    base: Path, data_root: Path, sc: BatchScenario, run_id: str,
+    commit: str, interval: float, raw: Path,
+) -> None:
     workers = _scale(sc.workers)
     ctrs = [SPARK_MASTER, *workers, KAFKA_CTR]
     stop, samples, t = _start_monitor(ctrs, interval, run_id, sc.scenario_id, sc.category, "batch")
@@ -235,7 +263,7 @@ def run_batch_once(base: Path, sc: BatchScenario, run_id: str, commit: str, inte
         "--master","spark://spark-master:7077",
         "--conf",f"spark.executor.instances={sc.workers}",
         "/opt/jobs/batch_job.py",
-        "--input",_container_path(base/sc.dataset_dir),
+        "--input",_container_data_path(_resolve_data_path(base, data_root, sc.dataset_dir), data_root),
         "--scenario",sc.scenario_id,"--run-id",run_id,"--workers",str(sc.workers),
     ], timeout=3600)
     stop.set(); t.join(timeout=10)
@@ -260,7 +288,7 @@ def run_batch_once(base: Path, sc: BatchScenario, run_id: str, commit: str, inte
 
 # ── execução stream ───────────────────────────────────────────────────────────
 def run_stream_once(
-    py: str, sc: StreamScenario, run_id: str, duration: int,
+    base: Path, data_root: Path, py: str, sc: StreamScenario, run_id: str, duration: int,
     commit: str, interval: float, raw: Path, topic_pfx: str, record: bool = True,
 ) -> None:
     workers = _scale(sc.workers)
@@ -295,7 +323,7 @@ def run_stream_once(
     time.sleep(5)
     prod = _run([
         py,"producer/taxi_stream_producer.py",
-        "--data-path",sc.data_path,
+        "--data-path",str(_resolve_data_path(base, data_root, sc.data_path)),
         "--bootstrap-servers","localhost:29092",
         "--topic",topic,
         "--rate",str(sc.rate_eps),
@@ -360,16 +388,17 @@ def main() -> None:
     os.chdir(base)
     py = _resolve_python(args.python, base)
     commit = _git_commit()
+    data_root = _resolve_data_root(base)
     raw = base/"results"/"raw"
     raw.mkdir(parents=True, exist_ok=True)
 
     write_environment_file(base/"results"/"environment.json")
     _scale(1)
-    _ensure_samples(base)
+    _ensure_samples(base, data_root)
     _ensure_topic(args.topic_prefix)
 
     if args.warmup:
-        run_stream_once(py, StreamScenario("warmup","warmup",50,2,1),
+        run_stream_once(base, data_root, py, StreamScenario("warmup","warmup",50,2,1),
                         "warmup-stream", 10, commit, 1.0, raw, args.topic_prefix, record=False)
 
     if not args.skip_batch:
@@ -378,7 +407,7 @@ def main() -> None:
                 rid = f"{sc.scenario_id}_r{rep}"
                 ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
                 print(f"[{ts}][batch] {rid} | dataset={Path(sc.dataset_dir).name} workers={sc.workers}")
-                run_batch_once(base, sc, rid, commit, args.stats_interval_sec, raw)
+                run_batch_once(base, data_root, sc, rid, commit, args.stats_interval_sec, raw)
 
     if not args.skip_stream:
         for sc in STREAM_SCENARIOS:
@@ -386,7 +415,7 @@ def main() -> None:
                 rid = f"{sc.scenario_id}_r{rep}"
                 ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
                 print(f"[{ts}][stream] {rid} | rate={sc.rate_eps}eps trigger={sc.trigger_sec}s workers={sc.workers}")
-                run_stream_once(py, sc, rid, args.stream_duration_sec,
+                run_stream_once(base, data_root, py, sc, rid, args.stream_duration_sec,
                                 commit, args.stats_interval_sec, raw, args.topic_prefix)
 
     _post(py)

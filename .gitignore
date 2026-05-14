@@ -5,7 +5,9 @@ venv_tmpfix/
 __pycache__/
 *.pyc
 
+# Large/generated datasets and experiment outputs
 data/raw/
+data/processed/
 data/samples/
 results/
 

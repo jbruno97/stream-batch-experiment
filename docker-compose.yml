@@ -69,7 +69,7 @@ services:
     volumes:
       - ./jobs:/opt/jobs
       - ./scripts:/opt/scripts
-      - ./data:/opt/data
+      - ${DATA_ROOT:-./data}:/opt/data
       - ./results:/opt/results
       - ./jars:/opt/jars
 
@@ -93,7 +93,7 @@ services:
       - "8081"
 
     volumes:
-      - ./data:/opt/data
+      - ${DATA_ROOT:-./data}:/opt/data
       - ./jars:/opt/jars
 
     environment:

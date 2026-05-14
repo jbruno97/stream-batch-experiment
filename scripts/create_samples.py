@@ -1,4 +1,5 @@
 import argparse
+import os
 from pathlib import Path
 
 from pyspark.sql import DataFrame, SparkSession
@@ -22,9 +23,11 @@ TARGET_PARTITIONS = {
 
 
 def parse_args() -> argparse.Namespace:
+    data_root = Path(os.environ.get("DATA_ROOT", "data"))
+    default_input = os.environ.get("DATASET_DIR", str(data_root / "raw" / "nyc_taxi"))
     parser = argparse.ArgumentParser(description="Create parquet samples from the raw NYC Taxi dataset")
-    parser.add_argument("--input", default="data/raw/nyc_taxi")
-    parser.add_argument("--output-root", default="data/samples")
+    parser.add_argument("--input", default=default_input)
+    parser.add_argument("--output-root", default=str(data_root / "samples"))
     parser.add_argument("--force", action="store_true")
     return parser.parse_args()
 
