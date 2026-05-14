@@ -120,7 +120,7 @@ O runner usa **30 repetições por cenário** por padrão.
 | Repetições padrão | 30 |
 | Total de execuções | 1050 |
 
-Estime **12–24 h** de execução para a campanha completa, dependendo do hardware. Comece sempre com 1 repetição para validar a esteira antes de iniciar a campanha.
+Estime **12–24 h** de execução para a campanha completa, dependendo do hardware. Inicia sempre com 1 repetição para validar a esteira antes de iniciar a campanha.
 
 ### Normalidade e intervalo de confiança
 
