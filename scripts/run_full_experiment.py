@@ -1,6 +1,3 @@
-"""
-Runner científico batch vs stream.  Versão compacta.
-"""
 import argparse
 import csv
 import json
