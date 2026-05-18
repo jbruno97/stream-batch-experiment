@@ -1,5 +1,6 @@
 pyspark
 kafka-python
+lz4
 pandas
 pyarrow
 matplotlib

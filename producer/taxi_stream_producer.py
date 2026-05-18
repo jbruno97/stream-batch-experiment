@@ -5,6 +5,7 @@ Lê o parquet em chunks para não explodir a RAM.
 import argparse
 import itertools
 import json
+import sys
 import time
 from pathlib import Path
 
@@ -22,6 +23,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--duration", type=int, default=30)
     p.add_argument("--topic", default="taxi-topic")
     p.add_argument("--bootstrap", "--bootstrap-servers", dest="bootstrap", default="localhost:29092")
+    p.add_argument("--compression", default="lz4",
+                   help="Codec de compressao do Kafka producer. Use 'none' para desabilitar.")
     p.add_argument("--scenario", default="S1")
     p.add_argument("--run-id", default="run-0")
     return p.parse_args()
@@ -42,13 +45,23 @@ def _iter_records(data_path: str):
 
 def main() -> None:
     args = parse_args()
-    producer = KafkaProducer(
-        bootstrap_servers=args.bootstrap,
-        value_serializer=lambda v: json.dumps(v, default=str).encode(),
-        linger_ms=5,           # micro-batching interno para reduzir syscalls
-        batch_size=32_768,
-        compression_type="lz4",
-    )
+    compression = None if args.compression.lower() in {"", "none", "null"} else args.compression
+    try:
+        producer = KafkaProducer(
+            bootstrap_servers=args.bootstrap,
+            value_serializer=lambda v: json.dumps(v, default=str).encode(),
+            linger_ms=5,           # micro-batching interno para reduzir syscalls
+            batch_size=32_768,
+            compression_type=compression,
+        )
+    except AssertionError as exc:
+        if compression == "lz4":
+            print(
+                "ERRO: compressao lz4 indisponivel. Instale as dependencias com "
+                "`pip install -r requirements.txt` ou rode com `--compression none`.",
+                file=sys.stderr,
+            )
+        raise exc
 
     interval = 1.0 / args.rate if args.rate > 0 else 0.0
     deadline = time.time() + args.duration
