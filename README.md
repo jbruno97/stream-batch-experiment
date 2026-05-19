@@ -328,6 +328,8 @@ O escalonamento de workers é feito por cenário e usa cache interno: `docker co
 
 ## Melhorias aplicadas nesta versão
 
+O historico completo do que foi feito em cada versao operacional esta em [`docs/historico_versoes.md`](docs/historico_versoes.md).
+
 ### Infraestrutura
 - **KRaft no lugar de Zookeeper** — o Kafka 7.7.0 roda em modo KRaft nativo, eliminando o container de Zookeeper e economizando ~512 MB de RAM e uma dependência de serviço.
 - **JARs pré-baixados** — o conector `spark-sql-kafka` é baixado uma vez via `download_jars.sh` e montado como volume, eliminando variância de rede entre repetições.
