@@ -17,10 +17,22 @@ from container_monitor import collect_container_metrics
 METRICS_PFX        = "METRICS_JSON:"
 PROGRESS_PFX       = "STREAM_PROGRESS_JSON:"
 BATCH_METRICS_PFX  = "STREAM_BATCH_METRICS_JSON:"
-KAFKA_PKG          = "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1"
 SPARK_MASTER       = "spark-master"
 KAFKA_CTR          = "kafka"
 CONTAINER_DATA_ROOT = Path("/opt/data")
+KAFKA_JARS = [
+    "/opt/jars/org.apache.spark_spark-sql-kafka-0-10_2.12-3.5.1.jar",
+    "/opt/jars/org.apache.kafka_kafka-clients-3.4.1.jar",
+    "/opt/jars/org.apache.spark_spark-token-provider-kafka-0-10_2.12-3.5.1.jar",
+    "/opt/jars/org.apache.commons_commons-pool2-2.11.1.jar",
+    "/opt/jars/org.lz4_lz4-java-1.8.0.jar",
+    "/opt/jars/org.xerial.snappy_snappy-java-1.1.10.3.jar",
+    "/opt/jars/org.slf4j_slf4j-api-2.0.7.jar",
+    "/opt/jars/org.apache.hadoop_hadoop-client-api-3.3.4.jar",
+    "/opt/jars/org.apache.hadoop_hadoop-client-runtime-3.3.4.jar",
+    "/opt/jars/commons-logging_commons-logging-1.1.3.jar",
+    "/opt/jars/com.google.code.findbugs_jsr305-3.0.0.jar",
+]
 
 # ── cenários ──────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
@@ -181,6 +193,14 @@ def _ensure_topic(topic: str) -> None:
     if r.returncode != 0:
         raise RuntimeError(f"Falha ao criar tópico {topic}: {r.stderr}")
 
+def _cleanup_spark_work(workers: List[str]) -> None:
+    """Remove diretorios de apps finalizados para evitar crescimento do layer Docker."""
+    for worker in workers:
+        _run([
+            "docker", "exec", worker, "sh", "-lc",
+            "find /opt/spark/work -mindepth 1 -maxdepth 1 -type d -name 'app-*' -exec rm -rf {} +"
+        ], timeout=120)
+
 def _resolve_data_root(base: Path) -> Path:
     data_root = Path(os.environ.get("DATA_ROOT", "data"))
     if not data_root.is_absolute():
@@ -267,6 +287,7 @@ def run_batch_once(
         "--scenario",sc.scenario_id,"--run-id",run_id,"--workers",str(sc.workers),
     ], timeout=3600)
     stop.set(); t.join(timeout=10)
+    _cleanup_spark_work(workers)
 
     m = _parse_metrics(r.stdout)
     res = _resource_summary(samples)
@@ -302,14 +323,8 @@ def run_stream_once(
         "docker","exec",SPARK_MASTER,
         "/opt/spark/bin/spark-submit",
         "--master","spark://spark-master:7077",
-        "--conf","spark.jars.ivy=/tmp/.ivy",
         "--conf",f"spark.executor.instances={sc.workers}",
-        # Tenta usar JARs pré-baixados; se ausentes, baixa via --packages
-        "--jars","/opt/jars/spark-sql-kafka-0-10_2.12-3.5.1.jar,"
-                 "/opt/jars/kafka-clients-3.4.1.jar,"
-                 "/opt/jars/spark-token-provider-kafka-0-10_2.12-3.5.1.jar,"
-                 "/opt/jars/commons-pool2-2.11.1.jar",
-        "--packages",KAFKA_PKG,
+        "--jars", ",".join(KAFKA_JARS),
         "/opt/jobs/stream_job.py",
         "--bootstrap-servers","kafka:9092",
         "--topic",topic,
@@ -333,6 +348,7 @@ def run_stream_once(
 
     s_out, s_err = stream_proc.communicate(timeout=duration+240)
     stop.set(); t.join(timeout=10)
+    _cleanup_spark_work(workers)
 
     sm = _parse_metrics(s_out)
     prog_rows = _parse_json_lines(s_out, PROGRESS_PFX)

@@ -363,6 +363,8 @@ O escalonamento de workers é feito por cenário e usa cache interno: `docker co
 
 ## Troubleshooting
 
+Um registro detalhado dos problemas encontrados durante a execucao, com sintomas, causas, precaucoes e correcoes, esta em [`docs/registro_problemas_experimento.md`](docs/registro_problemas_experimento.md).
+
 **`docker compose up` falha**
 ```bash
 ss -tlnp | grep -E '9092|29092|7077|8084'
@@ -376,7 +378,11 @@ docker compose logs spark-master
 
 **Stream falha ao carregar o conector Kafka**
 - Execute `bash scripts/download_jars.sh` para pré-baixar os JARs.
-- O runner usa `--jars` com os JARs locais e `--packages` como fallback.
+- O runner usa `--jars` com os JARs locais para evitar downloads e cópias extras por repetição.
+
+**Docker cresce muito durante campanhas longas**
+- O Spark grava dados temporários em `/opt/spark/work`; o worker está configurado com limpeza automática e o runner remove diretórios `app-*` ao fim de cada execução.
+- Se uma campanha antiga travou, rode `docker compose down` para remover containers parados e liberar a camada gravável acumulada.
 
 **Workers não sobem ao escalar**
 - Confirme que `docker-compose.yml` não tem `container_name` fixo para `spark-worker`.
